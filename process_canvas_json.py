@@ -13,6 +13,10 @@ import argparse
 import json
 import sys
 
+class ProcessCanvasJSON:
+    def __init__(self, filename):
+        self.filename = filename
+        self.data = []
 
 def load_json_lines(filename):
     """Reads a JSON Lines (NDJSON) file and returns a list of dictionaries."""
@@ -35,7 +39,7 @@ def load_json_lines(filename):
     return data
 
 
-def main():
+def process_canvas_json():
     argument_parser = argparse.ArgumentParser(
         description="Match and combine Canvas JSON data files."
     )
@@ -75,6 +79,11 @@ def main():
         type=str,
         help="Path to the conversation message participants JSON file",
     )
+    argument_parser.add_argument(
+        "communication_channels_filename",
+        type=str,
+        help="Path to the communication channels JSON file",
+    )
     args = argument_parser.parse_args()
 
     # Batch load all datasets using the helper function
@@ -92,11 +101,58 @@ def main():
     conversation_message_participants_data = load_json_lines(
         args.conversation_message_participants_filename
     )
+    communication_channels_data = load_json_lines(
+        args.communication_channels_filename
+    )
 
-    # TODO: Your upcoming matching/combining logic goes here!
+    accounts_dict = {}
+    for data_item in accounts_data:
+        accounts_dict[data_item["key"]["id"]] = data_item["value"]
+
+    roles_dict = {}
     for data_item in roles_data:
-        print(data_item)
+        roles_dict[data_item["key"]["id"]] = data_item["value"]
 
+    account_users_dict = {}
+    for data_item in account_users_data:
+        account_users_dict[data_item["key"]["id"]] = data_item["value"]
+    
+    users_dict = {}
+    for data_item in users_data:
+        users_dict[data_item["key"]["id"]] = data_item["value"]
+
+    conversations_dict = {}
+    for data_item in conversations_data:
+        conversations_dict[data_item["key"]["id"]] = data_item["value"]
+
+    conversation_participants_dict = {}
+    for data_item in conversation_participants_data:
+        conversation_participants_dict[data_item["key"]["id"]] = data_item["value"]
+
+    conversation_message_participants_dict = {}
+    for data_item in conversation_message_participants_data:
+        conversation_message_participants_dict[data_item["key"]["id"]] = data_item["value"]
+
+    communication_channels_dict = {}
+    for data_item in communication_channels_data:
+        communication_channels_dict[data_item["key"]["id"]] = data_item["value"]
+
+    channels_users_dict = {}
+    for key in communication_channels_dict.keys():
+        channels_users_dict[communication_channels_dict[key]["user_id"]] = key
+
+    for data_item in conversation_messages_data:
+        message_subject = "<No subject>"
+        if "subject" in conversations_dict[data_item["value"]["conversation_id"]]:
+            message_subject = conversations_dict[data_item["value"]["conversation_id"]]["subject"]
+        sortable_name = "<non-existent user>"
+        if data_item["value"]["author_id"] in users_dict:
+            sortable_name = users_dict[data_item["value"]["author_id"]]["sortable_name"]
+        comms_path = "<non-existent channel>"
+        if data_item["value"]["author_id"] in channels_users_dict:
+            comms_path = communication_channels_dict[channels_users_dict[data_item["value"]["author_id"]]]["path"]
+        print(data_item["key"]["id"], data_item["value"]["conversation_id"], message_subject,
+                sortable_name, comms_path)
 
 if __name__ == "__main__":
-    main()
+    process_canvas_json()
