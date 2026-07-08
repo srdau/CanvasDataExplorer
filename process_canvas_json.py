@@ -14,6 +14,7 @@ import json
 import sys
 from datetime import datetime
 from tzlocal import get_localzone
+import pprint
 
 
 class ProcessCanvasJSON:
@@ -87,6 +88,11 @@ def process_canvas_json():
         type=str,
         help="Path to the communication channels JSON file",
     )
+    argument_parser.add_argument(
+        "enrollments_filename",
+        type=str,
+        help="Path to the enrollments JSON file",
+    )
     args = argument_parser.parse_args()
 
     # Batch load all datasets using the helper function
@@ -107,6 +113,7 @@ def process_canvas_json():
     communication_channels_data = load_json_lines(
         args.communication_channels_filename
     )
+    enrollments_data = load_json_lines(args.enrollments_filename)
 
     accounts_dict = {}
     for data_item in accounts_data:
@@ -119,14 +126,21 @@ def process_canvas_json():
     account_users_dict = {}
     for data_item in account_users_data:
         account_users_dict[data_item["key"]["id"]] = data_item["value"]
-    
+
     users_dict = {}
     for data_item in users_data:
         users_dict[data_item["key"]["id"]] = data_item["value"]
 
+    user_mapping_dict = {}
+    for key in account_users_dict.keys():
+        user_mapping_dict[account_users_dict[key]["user_id"]] = key
+#    pprint.pprint(user_mapping_dict, indent=4)
+
     conversations_dict = {}
     for data_item in conversations_data:
         conversations_dict[data_item["key"]["id"]] = data_item["value"]
+        if not "context_id" in conversations_dict[data_item["key"]["id"]]:
+            conversations_dict[data_item["key"]["id"]]["context_id"] = 1
 
     conversation_participants_dict = {}
     for data_item in conversation_participants_data:
@@ -142,8 +156,21 @@ def process_canvas_json():
 
     channels_users_dict = {}
     for key in communication_channels_dict.keys():
-        channels_users_dict[communication_channels_dict[key]["user_id"]] = key
+        if (communication_channels_dict[key]["path_type"] == "email"):
+            channels_users_dict[communication_channels_dict[key]["user_id"]] = key
 
+    course_users_dict = {}
+    for data_item in enrollments_data:
+        if not data_item["value"]["course_id"] in course_users_dict:
+            course_users_dict[data_item["value"]["course_id"]] = \
+                { data_item["value"]["user_id"]: data_item["value"]["type"] }
+        else:
+            course_users_dict[data_item["value"]["course_id"]][data_item["value"]["user_id"]] = \
+                data_item["value"]["type"]
+    pprint.pprint(course_users_dict)
+
+    print('"message ID","conversation ID","date","time","author user ID","role","author name",' +
+                  '"author email","subject"')
     for data_item in conversation_messages_data:
         local_tz = get_localzone()
         clean_message_creation_timestamp = data_item["value"]["created_at"].replace("Z", "+00:00")
@@ -153,17 +180,25 @@ def process_canvas_json():
         if not "subject" in conversations_dict[data_item["value"]["conversation_id"]]:
             conversations_dict[data_item["value"]["conversation_id"]]["subject"] = "<No subject>"
         if not data_item["value"]["author_id"] in users_dict:
-            users_dict[data_item["value"]["author_id"]]["sortable_name"] = "<non-existent user>"
+            users_dict[data_item["value"]["author_id"]] = { "sortable_name": "<non-existent user>" }
         if not data_item["value"]["author_id"] in channels_users_dict:
-            communication_channels_dict[channels_users_dict[data_item["value"]["author_id"]]]["path"] = \
-                "<non-existent channel>"
+            channels_users_dict[data_item["value"]["author_id"]] = 0
+            communication_channels_dict[channels_users_dict[data_item["value"]["author_id"]]] = \
+                { "path": "<non-existent channel>" }
 
         output_str = f'{data_item["key"]["id"]},'
         output_str += f'{data_item["value"]["conversation_id"]},'
         output_str += f'{local_message_creation_datetime.strftime("%Y-%m-%d")},'
-        output_str += f'{local_message_creation_datetime.strftime("%H:%M:%S")},'
+        output_str += f'{local_message_creation_datetime.strftime("%H:%M:%S%z")},'
         output_str += f'{data_item["value"]["author_id"]},'
         output_str += f'"{users_dict[data_item["value"]["author_id"]]["sortable_name"]}",'
+        if conversations_dict[data_item["value"]["conversation_id"]]["context_id"] == 1:
+            if data_item["value"]["author_id"] in user_mapping_dict:
+                output_str += f'"{roles_dict[account_users_dict[user_mapping_dict[data_item["value"]["author_id"]]]["role_id"]]["name"]}",'
+            else:
+                output_str += '"MaybeStudent",'
+        else:
+            output_str += f'"{course_users_dict[conversations_dict[data_item["value"]["conversation_id"]]["context_id"]][data_item["value"]["author_id"]]}",'
         output_str += f'"{communication_channels_dict[channels_users_dict[data_item["value"]["author_id"]]]["path"]}",'
         output_str += f'"{conversations_dict[data_item["value"]["conversation_id"]]["subject"]}",'
 
