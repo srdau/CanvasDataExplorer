@@ -12,6 +12,9 @@
 import argparse
 import json
 import sys
+from datetime import datetime
+from tzlocal import get_localzone
+
 
 class ProcessCanvasJSON:
     def __init__(self, filename):
@@ -142,17 +145,29 @@ def process_canvas_json():
         channels_users_dict[communication_channels_dict[key]["user_id"]] = key
 
     for data_item in conversation_messages_data:
-        message_subject = "<No subject>"
-        if "subject" in conversations_dict[data_item["value"]["conversation_id"]]:
-            message_subject = conversations_dict[data_item["value"]["conversation_id"]]["subject"]
-        sortable_name = "<non-existent user>"
-        if data_item["value"]["author_id"] in users_dict:
-            sortable_name = users_dict[data_item["value"]["author_id"]]["sortable_name"]
-        comms_path = "<non-existent channel>"
-        if data_item["value"]["author_id"] in channels_users_dict:
-            comms_path = communication_channels_dict[channels_users_dict[data_item["value"]["author_id"]]]["path"]
-        print(data_item["key"]["id"], data_item["value"]["conversation_id"], message_subject,
-                sortable_name, comms_path)
+        local_tz = get_localzone()
+        clean_message_creation_timestamp = data_item["value"]["created_at"].replace("Z", "+00:00")
+        utc_message_creation_datetime = datetime.fromisoformat(clean_message_creation_timestamp)
+        local_message_creation_datetime = utc_message_creation_datetime.astimezone(local_tz)
+
+        if not "subject" in conversations_dict[data_item["value"]["conversation_id"]]:
+            conversations_dict[data_item["value"]["conversation_id"]]["subject"] = "<No subject>"
+        if not data_item["value"]["author_id"] in users_dict:
+            users_dict[data_item["value"]["author_id"]]["sortable_name"] = "<non-existent user>"
+        if not data_item["value"]["author_id"] in channels_users_dict:
+            communication_channels_dict[channels_users_dict[data_item["value"]["author_id"]]]["path"] = \
+                "<non-existent channel>"
+
+        output_str = f'{data_item["key"]["id"]},'
+        output_str += f'{data_item["value"]["conversation_id"]},'
+        output_str += f'{local_message_creation_datetime.strftime("%Y-%m-%d")},'
+        output_str += f'{local_message_creation_datetime.strftime("%H:%M:%S")},'
+        output_str += f'{data_item["value"]["author_id"]},'
+        output_str += f'"{users_dict[data_item["value"]["author_id"]]["sortable_name"]}",'
+        output_str += f'"{communication_channels_dict[channels_users_dict[data_item["value"]["author_id"]]]["path"]}",'
+        output_str += f'"{conversations_dict[data_item["value"]["conversation_id"]]["subject"]}",'
+
+        print(output_str)
 
 if __name__ == "__main__":
     process_canvas_json()
