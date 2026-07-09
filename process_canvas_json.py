@@ -184,7 +184,16 @@ def process_canvas_json():
         if not data_item["value"]["author_id"] in channels_users_dict:
             channels_users_dict[data_item["value"]["author_id"]] = 0
             communication_channels_dict[channels_users_dict[data_item["value"]["author_id"]]] = \
-                { "path": "<non-existent channel>" }
+                { "path_type": "non-existent",
+                  "path": "<non-existent channel>" }
+            user_type = "Unknown"
+        else:
+            if channels_users_dict[data_item["value"]["author_id"]].endswith("det.nsw.edu.au"):
+                user_type = "Staff"
+            elif channels_users_dict[data_item["value"]["author_id"]].endswith("education.nsw.gov.au"):
+                user_type = "Student"
+            else:
+                user_type = "Other"
 
         output_str = f'{data_item["key"]["id"]},'
         output_str += f'{data_item["value"]["conversation_id"]},'
@@ -192,13 +201,27 @@ def process_canvas_json():
         output_str += f'{local_message_creation_datetime.strftime("%H:%M:%S%z")},'
         output_str += f'{data_item["value"]["author_id"]},'
         output_str += f'"{users_dict[data_item["value"]["author_id"]]["sortable_name"]}",'
-        if conversations_dict[data_item["value"]["conversation_id"]]["context_id"] == 1:
+        # Handle the assumed "account-level" and "user-level" conversation contexts distinctly
+        # from course-level conversation contexts.
+
+        if conversations_dict[data_item["value"]["conversation_id"]]["context_type"] == "Account":
             if data_item["value"]["author_id"] in user_mapping_dict:
                 output_str += f'"{roles_dict[account_users_dict[user_mapping_dict[data_item["value"]["author_id"]]]["role_id"]]["name"]}",'
             else:
-                output_str += '"MaybeStudent",'
+                output_str += '"<unknown role in account context>",'
+        elif conversations_dict[data_item["value"]["conversation_id"]]["context_type"] == "User":
+            if data_item["value"]["author_id"] in users_dict:
+                output_str += '"<unknown role in user context>",'
         else:
-            output_str += f'"{course_users_dict[conversations_dict[data_item["value"]["conversation_id"]]["context_id"]][data_item["value"]["author_id"]]}",'
+            # Handle the absence of a user from a course enrollment list
+            # Presumably this could arise where a user was enrolled in a course at
+            # the time of posting a message but then removed from the course
+            # subsequently
+            if data_item["value"]["author_id"] in \
+                    course_users_dict[conversations_dict[data_item["value"]["conversation_id"]]["context_id"]]:
+                output_str += f'"{course_users_dict[conversations_dict[data_item["value"]["conversation_id"]]["context_id"]][data_item["value"]["author_id"]]}",'
+            else:
+                output_str += '"MaybeStudent",'
         output_str += f'"{communication_channels_dict[channels_users_dict[data_item["value"]["author_id"]]]["path"]}",'
         output_str += f'"{conversations_dict[data_item["value"]["conversation_id"]]["subject"]}",'
 
