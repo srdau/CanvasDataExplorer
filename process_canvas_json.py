@@ -14,6 +14,8 @@ import json
 import sys
 from datetime import datetime
 from tzlocal import get_localzone
+from itertools import batched
+from textwrap import wrap
 import pprint
 
 
@@ -110,6 +112,7 @@ def process_canvas_json():
     conversation_message_participants_data = load_json_lines(
         args.conversation_message_participants_filename
     )
+
     communication_channels_data = load_json_lines(
         args.communication_channels_filename
     )
@@ -134,7 +137,6 @@ def process_canvas_json():
     user_mapping_dict = {}
     for key in account_users_dict.keys():
         user_mapping_dict[account_users_dict[key]["user_id"]] = key
-#    pprint.pprint(user_mapping_dict, indent=4)
 
     conversations_dict = {}
     for data_item in conversations_data:
@@ -148,7 +150,12 @@ def process_canvas_json():
 
     conversation_message_participants_dict = {}
     for data_item in conversation_message_participants_data:
-        conversation_message_participants_dict[data_item["key"]["id"]] = data_item["value"]
+        if data_item["value"]["conversation_message_id"] in conversation_message_participants_dict:
+            conversation_message_participants_dict[data_item["value"]["conversation_message_id"]]\
+                .append(data_item["value"]["user_id"])
+        else:
+            conversation_message_participants_dict[data_item["value"]["conversation_message_id"]] = \
+                [ data_item["value"]["user_id"] ]
 
     communication_channels_dict = {}
     for data_item in communication_channels_data:
@@ -167,10 +174,10 @@ def process_canvas_json():
         else:
             course_users_dict[data_item["value"]["course_id"]][data_item["value"]["user_id"]] = \
                 data_item["value"]["type"]
-    pprint.pprint(course_users_dict)
 
-    print('"message ID","conversation ID","date","time","author user ID","role","author name",' +
-                  '"author email","subject"')
+    print('"message ID","body part","total parts","conversation ID","date","time","timezone offset",' + \
+          '"author user ID","role","author name","author email","subject",' + \
+          '"has attachments","recipients","message body"')
     for data_item in conversation_messages_data:
         local_tz = get_localzone()
         clean_message_creation_timestamp = data_item["value"]["created_at"].replace("Z", "+00:00")
@@ -179,6 +186,9 @@ def process_canvas_json():
 
         if not "subject" in conversations_dict[data_item["value"]["conversation_id"]]:
             conversations_dict[data_item["value"]["conversation_id"]]["subject"] = "<No subject>"
+        elif conversations_dict[data_item["value"]["conversation_id"]]["subject"] == "":
+            conversations_dict[data_item["value"]["conversation_id"]]["subject"] = "<No subject>"
+
         if not data_item["value"]["author_id"] in users_dict:
             users_dict[data_item["value"]["author_id"]] = { "sortable_name": "<non-existent user>" }
         if not data_item["value"]["author_id"] in channels_users_dict:
@@ -188,44 +198,40 @@ def process_canvas_json():
                   "path": "<non-existent channel>" }
             user_type = "Unknown"
         else:
-            if channels_users_dict[data_item["value"]["author_id"]].endswith("det.nsw.edu.au"):
+            if (communication_channels_dict[channels_users_dict[data_item["value"]["author_id"]]]["path"]
+                    .endswith("det.nsw.edu.au")):
                 user_type = "Staff"
-            elif channels_users_dict[data_item["value"]["author_id"]].endswith("education.nsw.gov.au"):
+            elif (communication_channels_dict[channels_users_dict[data_item["value"]["author_id"]]]["path"]
+                    .endswith("education.nsw.gov.au")):
                 user_type = "Student"
             else:
                 user_type = "Other"
 
-        output_str = f'{data_item["key"]["id"]},'
-        output_str += f'{data_item["value"]["conversation_id"]},'
-        output_str += f'{local_message_creation_datetime.strftime("%Y-%m-%d")},'
-        output_str += f'{local_message_creation_datetime.strftime("%H:%M:%S%z")},'
-        output_str += f'{data_item["value"]["author_id"]},'
-        output_str += f'"{users_dict[data_item["value"]["author_id"]]["sortable_name"]}",'
-        # Handle the assumed "account-level" and "user-level" conversation contexts distinctly
-        # from course-level conversation contexts.
-
-        if conversations_dict[data_item["value"]["conversation_id"]]["context_type"] == "Account":
-            if data_item["value"]["author_id"] in user_mapping_dict:
-                output_str += f'"{roles_dict[account_users_dict[user_mapping_dict[data_item["value"]["author_id"]]]["role_id"]]["name"]}",'
-            else:
-                output_str += '"<unknown role in account context>",'
-        elif conversations_dict[data_item["value"]["conversation_id"]]["context_type"] == "User":
-            if data_item["value"]["author_id"] in users_dict:
-                output_str += '"<unknown role in user context>",'
-        else:
-            # Handle the absence of a user from a course enrollment list
-            # Presumably this could arise where a user was enrolled in a course at
-            # the time of posting a message but then removed from the course
-            # subsequently
-            if data_item["value"]["author_id"] in \
-                    course_users_dict[conversations_dict[data_item["value"]["conversation_id"]]["context_id"]]:
-                output_str += f'"{course_users_dict[conversations_dict[data_item["value"]["conversation_id"]]["context_id"]][data_item["value"]["author_id"]]}",'
-            else:
-                output_str += '"MaybeStudent",'
-        output_str += f'"{communication_channels_dict[channels_users_dict[data_item["value"]["author_id"]]]["path"]}",'
-        output_str += f'"{conversations_dict[data_item["value"]["conversation_id"]]["subject"]}",'
-
-        print(output_str)
+        message_id = f'{data_item["key"]["id"]},'
+        conversation_id = f'{data_item["value"]["conversation_id"]},'
+        message_date = f'{local_message_creation_datetime.strftime("%Y-%m-%d")},'
+        message_time = f'{local_message_creation_datetime.strftime("%H:%M:%S")},'
+        message_timezone_offset = f'{local_message_creation_datetime.strftime("%z")},'
+        author_id = f'{data_item["value"]["author_id"]},'
+        author_user_type = f'"{user_type}",'
+        author_name = f'"{users_dict[data_item["value"]["author_id"]]["sortable_name"]}",'
+        author_email_address = f'"{communication_channels_dict[channels_users_dict[data_item["value"]["author_id"]]]["path"]}",'
+        conversation_subject = f'"{conversations_dict[data_item["value"]["conversation_id"]]["subject"]}",'
+        message_has_attachments = f'"{data_item["value"]["has_attachments"]}",'
+        message_recipients_user_ids = f'"{conversation_message_participants_dict[data_item["key"]["id"]]}",'
+        message_body = " ".join(data_item["value"]["body"].splitlines())
+        # body_parts = [ "".join(batch) for batch in
+        #                 batched(message_body.replace('"', "'"), 1016) ]
+        body_parts = wrap(message_body.replace('"', "'"), width=1016, break_long_words=True)
+        total_body_parts = len(body_parts)
+        part_index = 1
+        for body_part in body_parts:
+            output_str = message_id + f'{part_index},{total_body_parts},' + conversation_id + \
+                         message_date + message_time + message_timezone_offset + author_id + author_user_type + \
+                         author_name + author_email_address + conversation_subject + message_has_attachments + \
+                         message_recipients_user_ids + f'"{body_part}"'
+            print(output_str)
+            part_index += 1
 
 if __name__ == "__main__":
     process_canvas_json()
